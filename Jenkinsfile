@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -11,29 +10,28 @@ pipeline {
         stage('Checkout') {
             steps {
                 cleanWs()
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[
-                        url: "${GITHUB_URL}"
-                    ]]
-                ])
+                git branch: 'main', url: "${GITHUB_URL}"
+            }
+        }
+
+        stage('Deploy MongoDB Configuration') {
+            steps {
+                sh '''
+                    kubectl apply -f mongo-secret.yaml
+                    kubectl apply -f mongo-configmap.yaml
+                '''
             }
         }
 
         stage('Deploy MongoDB') {
             steps {
-                sh 'kubectl apply -f mongo-configmap.yaml'
                 sh 'kubectl apply -f mongo.yaml'
             }
         }
 
         stage('Wait for MongoDB') {
             steps {
-                sh '''
-                    kubectl rollout status statefulset/mongo \
-                    --timeout=180s
-                '''
+                sh 'kubectl rollout status statefulset/mongo --timeout=300s'
             }
         }
 
@@ -45,30 +43,29 @@ pipeline {
 
         stage('Wait for Mongo Express') {
             steps {
-                sh '''
-                    kubectl rollout status deployment/mongo-express \
-                    --timeout=180s
-                '''
+                sh 'kubectl rollout status deployment/mongo-express --timeout=300s'
             }
         }
 
-        stage('Check Kubernetes Cluster') {
+        stage('Verify Deployment') {
             steps {
-                sh 'kubectl get pods'
-                sh 'kubectl get services'
-                sh 'kubectl get statefulsets'
-                sh 'kubectl get deployments'
+                sh '''
+                    kubectl get pods
+                    kubectl get services
+                    kubectl get statefulsets
+                    kubectl get deployments
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "Lab 3.8 pipeline completed successfully."
+            echo 'Lab 3.8 deployment successful!'
         }
 
         failure {
-            echo "Lab 3.8 pipeline failed. Check Console Output."
+            echo 'Lab 3.8 failed. Check Console Output.'
         }
     }
 }
