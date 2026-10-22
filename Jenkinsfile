@@ -1,88 +1,74 @@
+
 pipeline {
-    agent any  // Run the pipeline on any available Jenkins agent
+    agent any
 
     environment {
-        // Store environment variables used throughout the pipeline
-        DOCKER_CREDENTIALS_ID = 'roseaw-dockerhub'        // Jenkins credential ID for authenticating with Docker Hub
-        GITHUB_URL = 'https://github.com/miamioh-cit/225-lab3-8.git'  // GitHub repository containing Kubernetes YAML files
-        KUBECONFIG = credentials('roseaw-225')             // Jenkins stored credential for accessing your Kubernetes cluster
+        GITHUB_URL = 'https://github.com/YawSanwu/225-lab3-8.git'
+        KUBECONFIG = credentials('sanwuya-225')
     }
 
     stages {
-
-        // -------------------------
-        // Stage 1: Checkout Code
-        // -------------------------
         stage('Checkout') {
             steps {
-                // Pull the latest version of the repository from GitHub (main branch)
+                cleanWs()
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[
-                        url: "${GITHUB_URL}",
-                        credentialsId: 'roseaw-dockerhub'
+                        url: "${GITHUB_URL}"
                     ]]
                 ])
             }
         }
-        // ---------------------------------------
-        // Stage 2: Deploy MongoDB and Mongo Express
-        // ---------------------------------------
-        stage('Build Mongo Stateful Set') {
-            steps {
-                script {
-                    // IMPORTANT: Ensure the secret file (mongo-secret.yaml) has been applied to the cluster first
-                    // You can manually create it using kubectl before running this pipeline
-                    // The secret contains MongoDB credentials (username/password) used by both Mongo and Mongo Express
 
-                    // Apply all required Kubernetes manifests in correct order
-                    sh 'kubectl apply -f mongo-secret.yaml'       // Secret containing credentials
-                    sh 'kubectl apply -f mongo.yaml'              // MongoDB StatefulSet or Deployment
-                    sh 'kubectl apply -f mongo-configmap.yaml'    // ConfigMap for Mongo initialization parameters
-                    sh 'kubectl apply -f mongo-express.yaml'      // Mongo Express web interface
-                }
+        stage('Deploy MongoDB') {
+            steps {
+                sh 'kubectl apply -f mongo-configmap.yaml'
+                sh 'kubectl apply -f mongo.yaml'
             }
         }
 
-        // -------------------------
-        // Stage 3: Verify Deployment
-        // -------------------------
+        stage('Wait for MongoDB') {
+            steps {
+                sh '''
+                    kubectl rollout status statefulset/mongo \
+                    --timeout=180s
+                '''
+            }
+        }
+
+        stage('Deploy Mongo Express') {
+            steps {
+                sh 'kubectl apply -f mongo-express.yaml'
+            }
+        }
+
+        stage('Wait for Mongo Express') {
+            steps {
+                sh '''
+                    kubectl rollout status deployment/mongo-express \
+                    --timeout=180s
+                '''
+            }
+        }
+
         stage('Check Kubernetes Cluster') {
             steps {
-                script {
-                    // Display all running resources (pods, services, deployments, etc.)
-                    // This helps confirm that MongoDB and Mongo Express are deployed and running
-                    sh "kubectl get all"
-                }
+                sh 'kubectl get pods'
+                sh 'kubectl get services'
+                sh 'kubectl get statefulsets'
+                sh 'kubectl get deployments'
             }
         }
     }
 
-    // -------------------------
-    // Post-Build Notifications
-    // -------------------------
     post {
         success {
-            // Send a Slack message when build succeeds
-            slackSend(
-                color: "good", 
-                message: "✅ Build Completed Successfully: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
+            echo "Lab 3.8 pipeline completed successfully."
         }
-        unstable {
-            // Send a Slack message when the build finishes but is marked unstable
-            slackSend(
-                color: "warning", 
-                message: "⚠️ Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
+
         failure {
-            // Send a Slack message when the build fails
-            slackSend(
-                color: "danger", 
-                message: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
+            echo "Lab 3.8 pipeline failed. Check Console Output."
         }
     }
 }
